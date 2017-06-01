@@ -1,9 +1,11 @@
 extern crate libc;
-use self::libc::{c_int, c_char, c_double};
+use self::libc::{c_int, c_char, c_double, c_void};
 
 use std::ptr;
+use std::fmt;
 
-struct D4Motor;
+#[repr(C)]
+struct D4Motor(c_void);
 
 #[link(name = "d4lib", kind="static")]
 extern "C" {
@@ -33,6 +35,18 @@ pub enum Status {
     Error(Error),
 }
 
+impl From<c_int> for Status {
+    fn from(code: c_int) -> Self {
+        match code {
+            0 => Status::Stopped,
+            1 => Status::Moving,
+            -1 => Status::Error(Error::Stalled),
+            -3 => Status::Error(Error::NoPower),
+            _ => Status::Error(Error::UnknownError),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 /// An error which might occure during the usage or the initialization.
 pub enum Error {
@@ -48,15 +62,16 @@ pub enum Error {
     UnknownError,
 }
 
-impl From<c_int> for Status {
-    fn from(code: c_int) -> Self {
-        match code {
-            0 => Status::Stopped,
-            1 => Status::Moving,
-            -1 => Status::Error(Error::Stalled),
-            -3 => Status::Error(Error::NoPower),
-            _ => Status::Error(Error::UnknownError),
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::NotLicensed => write!(f, "Authentification failed. Is the dongle missing?"),
+            Error::DeviceUnavailable => write!(f, "Device unavailable. Is the table connected?"),
+            Error::Stalled => write!(f, "The table is stalled and was not able to rotate."),
+            Error::NoPower => write!(f, "The table has no power available."),
+            Error::UnknownError => write!(f, "An unknown error occurres."),
         }
+
     }
 }
 
@@ -65,7 +80,7 @@ pub struct TurningTable(*mut D4Motor);
 
 impl TurningTable {
     /// Creates a new controller
-    fn new() -> Result<Self, Error> {
+    pub fn new() -> Result<Self, Error> {
         if unsafe { d4lib_init(ptr::null()) } != 0 {
             return Err(Error::NotLicensed);
         }
@@ -83,7 +98,7 @@ impl TurningTable {
     }
 
     /// Returns the current status of the turning table.
-    fn status(&self) -> Status {
+    pub fn status(&self) -> Status {
         let mut status = 0;
         match unsafe { d4motor_getStatus(self.0, &mut status as *mut c_int) } {
             0 => Status::from(status),
@@ -92,7 +107,7 @@ impl TurningTable {
     }
 
     /// Turns the turning table.
-    fn turn(&mut self, degrees: i16) {
+    pub fn turn(&mut self, degrees: i16) {
         unsafe { d4motor_move(self.0, degrees as c_double) };
     }
 }
